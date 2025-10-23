@@ -1,0 +1,86 @@
+version: '3.8' # Specifies the docker-compose version
+
+services:
+  # Service 1: Your performance-demo application
+  performance-demo:
+    build:
+      context: ./performance-demo # Path to the Dockerfile
+    container_name: performance-demo
+    ports:
+      - "8080:8080" # Map port 8080 on your machine to port 8080 in the container
+    networks:
+      - optimizer-net # Connect to the custom network
+
+  # Service 2: Your analyzer-service application
+  analyzer-service:
+    build:
+      context: ./analyzer-service # Path to the Dockerfile
+    container_name: analyzer-service
+    ports:
+      - "8081:8081" # Map port 8081
+    environment:
+      # Pass environment variables needed by the application
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090 # Use service name 'prometheus'
+      - AI_API_KEY=${AI_API_KEY} # IMPORTANT: Reads API key from host environment variable
+      - AI_BASE_URL=https://api.groq.com/openai/v1
+      - AI_MODEL_NAME=llama-3.1-8b-instant
+      # Add email settings as environment variables
+      - SPRING_MAIL_HOST=smtp.gmail.com
+      - SPRING_MAIL_PORT=587
+      - SPRING_MAIL_USERNAME=${MAIL_USERNAME} # Read from host env variable
+      - SPRING_MAIL_PASSWORD=${MAIL_PASSWORD} # Read from host env variable
+      - SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
+      - SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true
+      - PERFORMANCE_REPORT_RECIPIENT=${MAIL_RECIPIENT} # Read from host env variable
+      - PERFORMANCE_REPORT_SUBJECT=Weekly API Performance Report [Docker]
+    depends_on: # Optionally wait for Prometheus to start
+      - prometheus
+    networks:
+      - optimizer-net
+
+  # Service 3: Prometheus
+  prometheus:
+    image: prom/prometheus:latest # Use official Prometheus image
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      # Mount your prometheus.yml config file into the container
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      # Optional: Persist Prometheus data outside the container
+      # - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml' # Tell Prometheus to use our config
+    networks:
+      - optimizer-net
+
+  # Service 4: Grafana
+  grafana:
+    image: grafana/grafana:latest # Use official Grafana image
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    # Optional: Persist Grafana dashboards/settings outside the container
+    # volumes:
+    #   - grafana_data:/var/lib/grafana
+    environment:
+      # Automatically configure Prometheus datasource (optional but convenient)
+      - GF_DATASOURCES_DEFAULT_NAME=Prometheus
+      - GF_DATASOURCES_DEFAULT_TYPE=prometheus
+      - GF_DATASOURCES_DEFAULT_URL=http://prometheus:9090 # Grafana connects to Prometheus via service name
+      - GF_DATASOURCES_DEFAULT_ACCESS=proxy
+      - GF_DATASOURCES_DEFAULT_IS_DEFAULT=true
+    depends_on:
+      - prometheus # Wait for Prometheus before starting Grafana
+    networks:
+      - optimizer-net
+
+# Define the network containers will use to communicate
+networks:
+  optimizer-net:
+    driver: bridge
+
+# Optional: Define volumes for data persistence (uncomment if needed)
+# volumes:
+#   prometheus_data:
+#   grafana_data:
